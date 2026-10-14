@@ -1,0 +1,146 @@
+# ==============================================================================
+# Servicios:
+#   - mysql: Base de datos origen (grammy_source) y Data Warehouse (music_dw)
+#   - postgres: Base de datos de metadatos de Apache Airflow
+#   - airflow-init: Inicialización de base de datos, usuario admin y carga de fuentes
+#   - airflow-webserver: Interfaz gráfica Web UI de Airflow (puerto 8080)
+#   - airflow-scheduler: Planificador y ejecutor de tareas del DAG
+# ==============================================================================
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file:
+    - .env
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__LOGGING_LEVEL: INFO
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+    PYTHONPATH: /opt/airflow
+    # Variables de conexión a MySQL dentro de la red Docker
+    MYSQL_HOST: mysql
+    MYSQL_PORT: 3306
+    MYSQL_ETL_USER: root
+    MYSQL_ETL_PASSWORD: ${MYSQL_ETL_PASSWORD:-root_password}
+    MYSQL_SOURCE_DB: grammy_source
+    MYSQL_DW_DB: music_dw
+    # Rutas relativas al contenedor (/opt/airflow)
+    SPOTIFY_CSV_PATH: data/raw/spotify_dataset.csv
+    GRAMMY_CSV_PATH: data/raw/the_grammy_awards.csv
+    SQL_DIR: sql
+    EVIDENCE_DIR: docs/evidence
+    STAGING_DIR: data/staging
+    GX_CONTEXT_DIR: gx
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./src:/opt/airflow/src
+    - ./sql:/opt/airflow/sql
+    - ./data:/opt/airflow/data
+    - ./docs:/opt/airflow/docs
+    - ./gx:/opt/airflow/gx
+  depends_on:
+    postgres:
+      condition: service_healthy
+    mysql:
+      condition: service_healthy
+
+services:
+  # ----------------------------------------------------------------------------
+  # Base de datos MySQL: Contiene grammy_source y music_dw
+  # ----------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.4
+    container_name: workshop2_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ETL_PASSWORD:-root_password}
+    ports:
+      - "${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - ./sql/source_setup.sql:/docker-entrypoint-initdb.d/01_source_setup.sql:ro
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ETL_PASSWORD:-root_password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ----------------------------------------------------------------------------
+  # Base de datos PostgreSQL: Metadatos internos de Airflow
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: workshop2_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------------------------
+  # Contenedor de inicialización de Airflow y preparación de fuentes
+  # ----------------------------------------------------------------------------
+  airflow-init:
+    <<: *airflow-common
+    container_name: workshop2_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        echo "=== Migrando base de datos de Airflow ==="
+        airflow db migrate
+        echo "=== Creando usuario administrador ==="
+        airflow users create \
+          --username admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com \
+          --password admin || true
+        echo "=== Preparando base de datos origen de Grammy desde CSV ==="
+        python -m src.source_prep
+        echo "=== Inicialización completada exitosamente ==="
+    restart: "no"
+
+  # ----------------------------------------------------------------------------
+  # Airflow Webserver (UI disponible en http://localhost:8080)
+  # ----------------------------------------------------------------------------
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: workshop2_airflow_webserver
+    restart: always
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ----------------------------------------------------------------------------
+  # Airflow Scheduler (Ejecuta las tareas y coordina el DAG)
+  # ----------------------------------------------------------------------------
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: workshop2_airflow_scheduler
+    restart: always
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  mysql_data:
+  postgres_data:
