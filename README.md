@@ -66,29 +66,7 @@ Loading the Grammy CSV into MySQL is *source preparation*: it creates the operat
 
 ## 4. Pipeline architecture
 
-```text
-SPOTIFY CSV                                   GRAMMY DATABASE (MySQL: grammy_source)
-    |                                                  |
-extract_spotify                                 extract_grammys
-    |                                                  |
-validate_spotify_raw ------------+     +------------- validate_grammys_raw
-                                 |     |
-                                 v     v
-                          transform_and_integrate
-                                    |
-                                    v
-                             validate_prepared
-                                    |
-                                    v
-                                 load_dw
-                                    |
-                                    v
-                  DATA WAREHOUSE (MySQL: music_dw) -> KPIs / Power BI
-```
-
-- The **raw gates** ensure that data can enter transformation.
-- The **prepared gate** ensures that the transformed tables are safe to load.
-- `load_dw` only runs when `validate_prepared` succeeds.
+![Pipeline architecture](docs/resources/workshop2_arquitecture.png)
 
 **Project components**
 
