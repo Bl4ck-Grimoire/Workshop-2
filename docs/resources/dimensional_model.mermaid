@@ -1,0 +1,74 @@
+---
+title: Workshop-2 Music Data Warehouse - fact constellation (two stars sharing dim_artist)
+---
+erDiagram
+    dim_artist   ||--o{ fact_track_credit      : "credited on"
+    dim_track    ||--o{ fact_track_credit      : "describes"
+    dim_genre    ||--o{ fact_track_credit      : "classifies"
+    dim_artist   ||--o{ fact_grammy_nomination : "credited on"
+    dim_year     ||--o{ fact_grammy_nomination : "awarded in"
+    dim_category ||--o{ fact_grammy_nomination : "awarded for"
+
+    dim_artist {
+        INT artist_key PK "surrogate key, -1 = Unknown artist"
+        VARCHAR(255) artist_name_norm UK "integration key: normalized name"
+        VARCHAR(255) artist_name "display name"
+        VARCHAR(12) match_status "MATCHED / SPOTIFY_ONLY / GRAMMY_ONLY / UNKNOWN"
+        VARCHAR(8) grammy_status "Winner / Nominee / None"
+    }
+
+    dim_track {
+        INT track_key PK "surrogate key"
+        VARCHAR(32) track_id UK "Spotify track id"
+        VARCHAR(500) track_name
+        VARCHAR(500) album_name "attribute, no album id in source"
+        TINYINT is_explicit
+    }
+
+    dim_genre {
+        INT genre_key PK "surrogate key"
+        VARCHAR(100) genre_name UK "Spotify track_genre"
+    }
+
+    dim_year {
+        SMALLINT year_key PK "ceremony year, natural key"
+        SMALLINT decade "e.g. 1990"
+        VARCHAR(6) decade_label "e.g. 1990s"
+        VARCHAR(255) ceremony_title
+    }
+
+    dim_category {
+        INT category_key PK "surrogate key"
+        VARCHAR(255) category_name_norm UK "trimmed and case-folded"
+        VARCHAR(255) category_name "display name"
+        VARCHAR(40) category_group "derived family, e.g. Pop or Rock"
+    }
+
+    fact_track_credit {
+        INT track_key PK, FK
+        INT genre_key PK, FK
+        INT artist_key PK, FK
+        TINYINT artist_position "1 = first credited artist"
+        TINYINT popularity "0-100 snapshot"
+        INT duration_ms
+        FLOAT danceability
+        FLOAT energy
+        FLOAT loudness "dB"
+        FLOAT speechiness
+        FLOAT acousticness
+        FLOAT instrumentalness
+        FLOAT liveness
+        FLOAT valence
+        FLOAT tempo "BPM"
+    }
+
+    fact_grammy_nomination {
+        INT nomination_source_id PK "degenerate: source_row_id"
+        INT artist_key PK, FK
+        SMALLINT year_key FK
+        INT category_key FK
+        VARCHAR(1000) nominee_name "degenerate attribute"
+        VARCHAR(16) artist_source "artist / nominee_fallback / unknown"
+        TINYINT nomination_count "always 1"
+        TINYINT win_count "0 or 1"
+    }

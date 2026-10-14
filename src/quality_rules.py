@@ -193,6 +193,9 @@ def prepared_data_objects(tables):
                                          **rule("DQ-25", CRITICAL)),
         gxe.ExpectCompoundColumnsToBeUnique(column_list=["nomination_source_id", "artist_key"], **rule("DQ-20", CRITICAL)),
         gxe.ExpectColumnValuesToBeInSet(column="win_count", value_set=[0, 1], **rule("DQ-21", CRITICAL)),
+        gxe.ExpectColumnMeanToBeBetween(column="win_count", min_value=0.0, max_value=0.5,
+                                        row_condition="year_key >= 2019", condition_parser="pandas",
+                                        **rule("DQ-21", CRITICAL)),
         gxe.ExpectColumnValuesToBeBetween(column="year_key", min_value=1958, max_value=CURRENT_YEAR, **rule("DQ-21", CRITICAL)),
     ]
     for helper in ["_artist_fk_ok", "_year_fk_ok", "_category_fk_ok"]:

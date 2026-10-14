@@ -125,10 +125,28 @@ def spotify_credits(df):
 def clean_grammy(raw):
     g = raw[["source_row_id", "year", "title", "category", "nominee", "artist", "winner"]].copy()  # TR-11 (RK-GR-02, 09)
     g["year_key"] = g["year"].astype(int)                                                       # TR-08 (RK-GR-04)
-    g["win_count"] = (g["winner"] == "True").astype(int)
     g["category_name"] = g["category"].str.strip().str.replace(r"\s+", " ", regex=True)         # TR-09 (RK-GR-05)
     g["category_name_norm"] = g["category_name"].str.lower()
     g["ceremony_title"] = g["title"].str.replace(r"\s+", " ", regex=True).str.strip()
+
+    # TR-15 (RK-GR-04): Win count resolution.
+    # 1. An explicit 'False'/'0' is always a losing nominee (win_count = 0).
+    # 2. In categories with full nomination slates (>2 entries, such as 2019 with 5-8 nominees),
+    #    the 1st nominee is the ceremony winner (rank 0 -> win_count = 1), and ranks > 0 are nominees (0).
+    # 3. In single-nominee or tie categories (<=2 entries, 1958-2018), winner == 'True' gives win_count = 1.
+    is_false = g["winner"].astype(str).str.strip().str.lower().isin(["false", "0"])
+    nominee_rank = g.groupby(["year_key", "category_name_norm"]).cumcount()
+    category_size = g.groupby(["year_key", "category_name_norm"])["source_row_id"].transform("count")
+
+    g["win_count"] = np.where(
+        is_false,
+        0,
+        np.where(
+            category_size > 2,
+            (nominee_rank == 0).astype(int),
+            (g["winner"].astype(str).str.strip().str.lower().isin(["true", "1"])).astype(int),
+        ),
+    )
     return g
 
 
